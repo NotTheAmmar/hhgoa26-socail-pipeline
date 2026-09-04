@@ -525,7 +525,7 @@
              <div class="sim-bar"><div class="sim-fill" style="width:${m.similarity}%;background:${simColor(m.similarity)}"></div></div>`
           : `<div class="match-sim" style="color:var(--muted)">No face detected in thumb</div>`;
         const thumb = m.thumbnail
-          ? `<img class="match-thumb" src="${m.thumbnail}" alt="thumb" onerror="this.style.display='none'" />`
+          ? `<img class="match-thumb" src="${m.thumbnail}" alt="thumb" onerror="this.onerror=null; this.src='${m.fallback || ''}'; if(!this.src) this.style.display='none';" />`
           : `<div class="match-thumb" style="display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:.75rem">No image</div>`;
         return `
           <div class="match-card ${i === 0 ? 'top-match' : ''}">

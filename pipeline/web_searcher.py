@@ -179,6 +179,7 @@ def search_face_on_web(image_path: str, face_encoding: list) -> dict:
             "link":       item.get("link", ""),
             "source":     item.get("source", ""),
             "thumbnail":  post_img,     # <--- Use the real image for UI
+            "fallback":   lens_thumb,   # <--- Fallback if post_img breaks
             "similarity": similarity,   # 0-100 or None
         })
 
@@ -198,6 +199,7 @@ def search_face_on_web(image_path: str, face_encoding: list) -> dict:
             "link":       item.get("link", ""),
             "source":     item.get("source", ""),
             "thumbnail":  item.get("image") or item.get("thumbnail", ""),
+            "fallback":   item.get("thumbnail", ""),
             "similarity": None,
         })
 
