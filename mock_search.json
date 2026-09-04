@@ -1,0 +1,7 @@
+{
+    "source_platform": "X",
+    "post_url": "https://x.com/example/status/123456789",
+    "title": "Example Post about the OSINT investigation",
+    "thumbnail_url": "https://example.com/mock_thumb.jpg",
+    "timestamp": "2023-10-01"
+}
