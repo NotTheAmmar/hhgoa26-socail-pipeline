@@ -149,8 +149,24 @@ def search_face_on_web(image_path: str, face_encoding: list) -> dict:
             "similarity": similarity,   # 0-100 or None
         })
 
-    # Bring face-confirmed matches to the top; None → treated as 0
-    matches.sort(key=lambda m: m["similarity"] or 0, reverse=True)
+    # -- 4. Rank and Sort Results ---------------------------------------------
+    # Favour social media posts first, then fallback to web search.
+    # Within each category, sort by face similarity descending.
+    SOCIAL_DOMAINS = [
+        "x.com", "twitter.com", "instagram.com", "linkedin.com",
+        "reddit.com", "facebook.com", "tiktok.com", "pinterest.com",
+        "threads.net", "youtube.com"
+    ]
+
+    def _is_social(url: str) -> bool:
+        return any(domain in url.lower() for domain in SOCIAL_DOMAINS)
+
+    def sort_key(m):
+        is_soc = _is_social(m["link"])
+        sim = m["similarity"] or 0
+        return (is_soc, sim)
+
+    matches.sort(key=sort_key, reverse=True)
 
     # Append any remaining results (beyond LIMIT) without similarity
     for item in visual_matches[_LENS_MATCH_LIMIT:]:
@@ -166,6 +182,6 @@ def search_face_on_web(image_path: str, face_encoding: list) -> dict:
         "success":       True,
         "hosted_url":    hosted_url,
         "matches":       matches,
-        "best_match":    matches[0],
+        "best_match":    matches[0] if matches else None,
         "total_matches": len(visual_matches),
     }
