@@ -134,7 +134,7 @@ def search_face_on_web(image_path: str, face_encoding: list) -> dict:
         }
 
     # -- 3. Pre-sort all visual matches to prioritize social media --------------
-    # We want to pull social media posts from ANYWHERE in the 60+ results to the top
+    # We want to pull actual social media posts from ANYWHERE in the 60+ results to the top
     # BEFORE we limit to the first 10 for expensive face similarity computation.
     SOCIAL_DOMAINS = [
         "instagram.com", "x.com", "twitter.com", "facebook.com",
@@ -142,32 +142,50 @@ def search_face_on_web(image_path: str, face_encoding: list) -> dict:
         "pinterest.com", "youtube.com"
     ]
 
-    def _is_social(url: str) -> bool:
-        return any(domain in url.lower() for domain in SOCIAL_DOMAINS)
+    def _is_social_post(url: str) -> bool:
+        url_lower = url.lower()
+        if not any(domain in url_lower for domain in SOCIAL_DOMAINS):
+            return False
+        
+        # Filter out generic subreddits, profiles, and channels
+        if "reddit.com" in url_lower and "/comments/" not in url_lower:
+            return False
+        if "youtube.com" in url_lower and "/watch" not in url_lower and "/shorts" not in url_lower:
+            return False
+        if "instagram.com" in url_lower and "/p/" not in url_lower and "/reel/" not in url_lower:
+            return False
+        if ("x.com" in url_lower or "twitter.com" in url_lower) and "/status/" not in url_lower:
+            return False
+            
+        return True
 
-    # Sort all raw matches: True (social) comes before False (web)
-    visual_matches.sort(key=lambda m: _is_social(m.get("link", "")), reverse=True)
+    # Sort all raw matches: True (social post) comes before False (web/generic)
+    visual_matches.sort(key=lambda m: _is_social_post(m.get("link", "")), reverse=True)
 
     # -- 4. Compute face-similarity for the top results -----------------------
     ref_encoding = np.array(face_encoding)
     matches = []
 
     for item in visual_matches[:_LENS_MATCH_LIMIT]:
-        thumbnail = item.get("thumbnail", "")
-        similarity = _face_similarity(thumbnail, ref_encoding) if thumbnail else None
+        # Lens provides a small cropped face thumbnail (fast for similarity)
+        lens_thumb = item.get("thumbnail", "")
+        # But we want to display the actual post image in the UI if available
+        post_img = item.get("image") or lens_thumb
+        
+        similarity = _face_similarity(lens_thumb, ref_encoding) if lens_thumb else None
 
         matches.append({
             "title":      item.get("title", "Unknown"),
             "link":       item.get("link", ""),
             "source":     item.get("source", ""),
-            "thumbnail":  thumbnail,
+            "thumbnail":  post_img,     # <--- Use the real image for UI
             "similarity": similarity,   # 0-100 or None
         })
 
     # -- 5. Final Rank and Sort for the processed matches ---------------------
     # Within the processed top 10, ensure social is first, then rank by similarity
     def sort_key(m):
-        is_soc = _is_social(m["link"])
+        is_soc = _is_social_post(m["link"])
         sim = m["similarity"] or 0
         return (is_soc, sim)
 
@@ -179,7 +197,7 @@ def search_face_on_web(image_path: str, face_encoding: list) -> dict:
             "title":      item.get("title", "Unknown"),
             "link":       item.get("link", ""),
             "source":     item.get("source", ""),
-            "thumbnail":  item.get("thumbnail", ""),
+            "thumbnail":  item.get("image") or item.get("thumbnail", ""),
             "similarity": None,
         })
 
