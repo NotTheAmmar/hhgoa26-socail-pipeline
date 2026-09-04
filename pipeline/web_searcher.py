@@ -133,7 +133,22 @@ def search_face_on_web(image_path: str, face_encoding: list) -> dict:
                           "Try a clearer, higher-resolution photo.",
         }
 
-    # -- 3. Compute face-similarity for each result ---------------------------
+    # -- 3. Pre-sort all visual matches to prioritize social media --------------
+    # We want to pull social media posts from ANYWHERE in the 60+ results to the top
+    # BEFORE we limit to the first 10 for expensive face similarity computation.
+    SOCIAL_DOMAINS = [
+        "instagram.com", "x.com", "twitter.com", "facebook.com",
+        "tiktok.com", "linkedin.com", "reddit.com", "threads.net",
+        "pinterest.com", "youtube.com"
+    ]
+
+    def _is_social(url: str) -> bool:
+        return any(domain in url.lower() for domain in SOCIAL_DOMAINS)
+
+    # Sort all raw matches: True (social) comes before False (web)
+    visual_matches.sort(key=lambda m: _is_social(m.get("link", "")), reverse=True)
+
+    # -- 4. Compute face-similarity for the top results -----------------------
     ref_encoding = np.array(face_encoding)
     matches = []
 
@@ -149,18 +164,8 @@ def search_face_on_web(image_path: str, face_encoding: list) -> dict:
             "similarity": similarity,   # 0-100 or None
         })
 
-    # -- 4. Rank and Sort Results ---------------------------------------------
-    # Favour social media posts first, then fallback to web search.
-    # Within each category, sort by face similarity descending.
-    SOCIAL_DOMAINS = [
-        "x.com", "twitter.com", "instagram.com", "linkedin.com",
-        "reddit.com", "facebook.com", "tiktok.com", "pinterest.com",
-        "threads.net", "youtube.com"
-    ]
-
-    def _is_social(url: str) -> bool:
-        return any(domain in url.lower() for domain in SOCIAL_DOMAINS)
-
+    # -- 5. Final Rank and Sort for the processed matches ---------------------
+    # Within the processed top 10, ensure social is first, then rank by similarity
     def sort_key(m):
         is_soc = _is_social(m["link"])
         sim = m["similarity"] or 0
