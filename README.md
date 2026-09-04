@@ -33,7 +33,7 @@ All free tiers — no credit card required anywhere.
 ## Prerequisites
 
 ### System
-- Python 3.10+
+- **Python 3.10–3.12** (required — `dlib`/`face_recognition` have no pre-built wheels for 3.13+; use `python3.12 -m venv .venv`)
 - Node.js 18+ & npm
 - `cmake` and `dlib` build tools (for `face_recognition`):
 
@@ -66,7 +66,7 @@ cp .env.example .env
 ### 2. Python dependencies
 
 ```bash
-python -m venv .venv
+python3.12 -m venv .venv
 source .venv/bin/activate        # Windows: .venv\Scripts\activate
 
 pip install -r requirements.txt

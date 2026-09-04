@@ -4,13 +4,15 @@ face_detector.py
 Step 1 of the pipeline: detect a face in the input image, crop it with padding,
 and return the face encoding (128-d vector) for downstream similarity matching.
 
-Dependencies: face_recognition (wraps dlib), Pillow
+Uses face_recognition (dlib HOG model) — requires Python 3.10–3.12.
+Pre-built dlib wheels are available for these versions; compilation not needed.
+
+Dependencies: face_recognition, Pillow
 """
 
 import logging
 import os
 import uuid
-from typing import Optional
 
 import face_recognition
 import numpy as np
@@ -18,7 +20,6 @@ from PIL import Image
 
 logger = logging.getLogger(__name__)
 
-# Temp directory for cropped face images (gitignored)
 _TMP_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "tmp_faces")
 
 
@@ -29,10 +30,10 @@ def detect_and_encode_face(image_path: str) -> dict:
     Returns a dict with:
       success        (bool)
       cropped_path   (str)   — path to the saved cropped face image
-      encoding       (list)  — 128-element face encoding (serialisable as JSON)
+      encoding       (list)  — 128-element face encoding (JSON-serialisable)
       face_location  (tuple) — (top, right, bottom, left) in pixels
       face_count     (int)   — total faces detected in image
-      error          (str)   — populated only on failure
+      error          (str)   — only on failure
     """
     os.makedirs(_TMP_DIR, exist_ok=True)
 
@@ -53,7 +54,6 @@ def detect_and_encode_face(image_path: str) -> dict:
         face_count = len(face_locations)
         if face_count > 1:
             logger.info(f"{face_count} faces found — using the largest one")
-            # Pick largest face (highest pixel area)
             face_locations.sort(
                 key=lambda loc: (loc[2] - loc[0]) * (loc[1] - loc[3]), reverse=True
             )
