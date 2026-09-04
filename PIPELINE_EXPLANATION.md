@@ -40,3 +40,8 @@ The primary goal of this system is to securely trace a given individual’s face
 - **Orchestrator:** The `run_pipeline()` function manages the state between the 3 stages, passing the cropped image from Stage 1 to Stage 2, and the best match from Stage 2 into Stage 3.
 - **Flask App:** Provides a lightweight backend with a single `POST /run` endpoint to accept image uploads.
 - **Frontend UI:** A dark-themed, single-page application (`templates/index.html`) using Vanilla JS. It displays the cropped face preview, visually ranks the match cards with similarity progress bars, and renders the Blockchain transaction details (Hash, Block Timestamp, and Verification Status).
+
+## Limitations & Edge Cases
+
+- **2D / Anime Characters:** The face detection model (`dlib` HOG/CNN via `face_recognition`) is biologically tuned to identify human facial structures (shadow gradients of noses, eye sockets, lip edges). It will intentionally fail to detect 2D illustrations or anime characters (like Tanjiro Kamado). This is working as intended, as the pipeline's goal is real-world Human OSINT, not artwork tracing.
+- **Cross-Origin Images (CORS):** Some social media websites (like Instagram or LinkedIn) block hotlinking of their full-resolution images. In these cases, the UI gracefully falls back to displaying Google Lens' cached thumbnail.
