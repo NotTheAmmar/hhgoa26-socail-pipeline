@@ -13,6 +13,7 @@ from flask import Flask, jsonify, render_template, request
 load_dotenv()
 
 from pipeline.orchestrator import run_pipeline
+from pipeline.blockchain_verifier import verify_on_chain, get_all_records
 
 # ---------------------------------------------------------------------------
 # App setup
@@ -84,6 +85,30 @@ def run():
 @app.get("/health")
 def health():
     return jsonify({"status": "ok"})
+
+
+@app.get("/records")
+def get_records():
+    """Return all stored records by reading RecordStored events from the blockchain."""
+    result = get_all_records()
+    if result["success"]:
+        return jsonify(result["records"])
+    # If chain is down, return empty with a warning header
+    return jsonify([]), 200
+
+
+@app.post("/verify")
+def verify_hash():
+    """Re-verify a content hash against the on-chain record."""
+    data = request.get_json(force=True, silent=True) or {}
+    content_hash = data.get("content_hash", "").strip()
+    if not content_hash or len(content_hash) != 64:
+        return jsonify({"error": "Invalid or missing content_hash (must be 64-char hex)"}), 400
+    try:
+        result = verify_on_chain(content_hash)
+        return jsonify(result)
+    except Exception as exc:
+        return jsonify({"verified": False, "error": str(exc)}), 500
 
 
 # ---------------------------------------------------------------------------

@@ -181,3 +181,44 @@ def verify_on_chain(content_hash: str) -> dict:
     except Exception as exc:
         logger.exception("Blockchain verify error")
         return {"verified": False, "error": str(exc)}
+
+
+def get_all_records() -> dict:
+    """
+    Read all RecordStored events from the chain to build the history list.
+    This makes the blockchain the single source of truth — no local JSON needed.
+
+    Returns
+    -------
+    dict with:
+      success  (bool)
+      records  (list) — newest first, each with content_hash, url, title, timestamp
+      error    (str)  — only on failure
+    """
+    try:
+        w3, contract, _, _ = _load_contract()
+    except (ConnectionError, FileNotFoundError) as exc:
+        return {"success": False, "records": [], "error": str(exc)}
+
+    try:
+        events = contract.events.RecordStored.get_logs(from_block=0)
+        records = []
+        for ev in reversed(events):   # newest first
+            h = ev["args"]["contentHash"]
+            content_hash = h.hex() if isinstance(h, (bytes, bytearray)) else str(h)
+            ts = ev["args"]["timestamp"]
+            records.append({
+                "content_hash":  content_hash,
+                "url":           ev["args"]["url"],
+                "title":         ev["args"]["title"],
+                "stored_at":     ts,
+                "stored_at_human": (
+                    time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime(ts)) if ts else None
+                ),
+                "tx_hash":       ev["transactionHash"].hex(),
+                "block_number":  ev["blockNumber"],
+            })
+        return {"success": True, "records": records}
+    except Exception as exc:
+        logger.exception("get_all_records error")
+        return {"success": False, "records": [], "error": str(exc)}

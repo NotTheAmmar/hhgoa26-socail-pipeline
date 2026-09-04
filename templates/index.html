@@ -307,6 +307,89 @@
     a { color: var(--accent); text-decoration: none; }
     a:hover { text-decoration: underline; }
 
+    /* ---- History panel ---- */
+    #history-panel {
+      max-width: 780px;
+      margin: 2rem auto 0;
+    }
+    #history-panel h2 {
+      font-size: 1rem;
+      font-weight: 600;
+      color: var(--accent);
+      margin-bottom: .75rem;
+      display: flex;
+      align-items: center;
+      gap: .5rem;
+    }
+    #history-panel h2 .count {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      padding: .1rem .55rem;
+      font-size: .75rem;
+      color: var(--muted);
+    }
+    .history-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: .8rem;
+    }
+    .history-table th {
+      background: var(--surface2);
+      color: var(--muted);
+      font-weight: 500;
+      padding: .5rem .75rem;
+      text-align: left;
+      border-bottom: 1px solid var(--border);
+    }
+    .history-table td {
+      padding: .6rem .75rem;
+      border-bottom: 1px solid var(--border);
+      vertical-align: middle;
+    }
+    .history-table tr:last-child td { border-bottom: none; }
+    .history-table tr:hover td { background: rgba(255,255,255,.02); }
+    .hash-cell {
+      font-family: "SFMono-Regular", Consolas, monospace;
+      color: var(--accent);
+      font-size: .72rem;
+      max-width: 120px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .re-verify-btn {
+      padding: .25rem .65rem;
+      font-size: .72rem;
+      font-weight: 600;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text);
+      cursor: pointer;
+      transition: border-color .15s;
+    }
+    .re-verify-btn:hover { border-color: var(--accent); color: var(--accent); }
+    .re-verify-btn:disabled { opacity: .4; cursor: not-allowed; }
+    .verify-pill {
+      display: inline-block;
+      padding: .2rem .55rem;
+      border-radius: 999px;
+      font-size: .7rem;
+      font-weight: 600;
+    }
+    .verify-pill.ok   { background: rgba(63,185,80,.15); color: var(--green); }
+    .verify-pill.fail { background: rgba(248,81,73,.15);  color: var(--red); }
+    .no-records {
+      text-align: center;
+      color: var(--muted);
+      font-size: .85rem;
+      padding: 2rem;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+    }
+
     footer {
       text-align: center;
       margin-top: 3rem;
@@ -396,6 +479,12 @@
 <footer>
   Google Lens · SerpAPI · face_recognition (dlib) · Hardhat EVM · web3.py · Flask
 </footer>
+
+<!-- History Panel -->
+<div id="history-panel">
+  <h2>⛓️ On-Chain Records History <span class="count" id="rec-count">0</span></h2>
+  <div id="history-body"><div class="no-records">No records yet — run the pipeline to store your first record.</div></div>
+</div>
 
 <script>
   const dropZone   = document.getElementById('drop-zone');
@@ -602,6 +691,94 @@
   function esc(s) {
     return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
   }
+
+  // ---- History panel ----
+  async function loadHistory() {
+    try {
+      const resp = await fetch('/records');
+      const records = await resp.json();
+      renderHistory(Array.isArray(records) ? records : []);
+    } catch(e) {
+      console.warn('Could not load records:', e);
+    }
+  }
+
+  function renderHistory(records) {
+    const body = document.getElementById('history-body');
+    const count = document.getElementById('rec-count');
+    count.textContent = records.length;
+    if (!records.length) {
+      body.innerHTML = '<div class="no-records">No records yet — run the pipeline to store your first record.</div>';
+      return;
+    }
+    const rows = records.map((r, i) => {
+      const shortHash = r.content_hash ? r.content_hash.slice(0,16) + '…' : '—';
+      const date = r.stored_at_human || (r.stored_at ? new Date(r.stored_at * 1000).toLocaleString() : '—');
+      return `<tr>
+        <td><span class="hash-cell" title="${esc(r.content_hash)}">${esc(shortHash)}</span></td>
+        <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+          ${r.url ? `<a href="${esc(r.url)}" target="_blank" title="${esc(r.title || r.url)}">${esc(r.title || r.url)}</a>` : '—'}
+        </td>
+        <td style="font-family:monospace;font-size:.72rem;color:var(--muted)">#${r.block_number ?? '—'}</td>
+        <td>${esc(date)}</td>
+        <td><span class="verify-pill" id="vpill-${i}">—</span></td>
+        <td>
+          <button class="re-verify-btn" id="vbtn-${i}" onclick="reVerify('${esc(r.content_hash)}', ${i})">Re-verify</button>
+        </td>
+      </tr>`;
+    }).join('');
+
+    body.innerHTML = `
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;overflow-x:auto">
+        <table class="history-table">
+          <thead><tr>
+            <th>SHA-256 Hash</th>
+            <th>Matched Post (on-chain)</th>
+            <th>Block</th>
+            <th>Stored At</th>
+            <th>Status</th>
+            <th>Action</th>
+          </tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>`;
+  }
+
+  async function reVerify(contentHash, idx) {
+    const btn  = document.getElementById(`vbtn-${idx}`);
+    const pill = document.getElementById(`vpill-${idx}`);
+    btn.disabled = true;
+    pill.textContent = '…';
+    pill.className = 'verify-pill';
+    try {
+      const resp = await fetch('/verify', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({content_hash: contentHash})
+      });
+      const data = await resp.json();
+      if (data.verified) {
+        pill.textContent = '✅ Verified';
+        pill.className = 'verify-pill ok';
+      } else {
+        pill.textContent = '❌ Not found';
+        pill.className = 'verify-pill fail';
+      }
+    } catch(e) {
+      pill.textContent = 'Error';
+      pill.className = 'verify-pill fail';
+    }
+    btn.disabled = false;
+  }
+
+  // Load history on page load and after each pipeline run
+  loadHistory();
+
+  const _origRender = renderResults;
+  renderResults = function(data) {
+    _origRender(data);
+    if (data.success) loadHistory();
+  };
 </script>
 </body>
 </html>
