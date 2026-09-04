@@ -1,0 +1,607 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Face ID & Blockchain Verification Pipeline</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #0d1117;
+      --surface:   #161b22;
+      --surface2:  #21262d;
+      --border:    #30363d;
+      --accent:    #58a6ff;
+      --green:     #3fb950;
+      --yellow:    #d29922;
+      --red:       #f85149;
+      --text:      #e6edf3;
+      --muted:     #8b949e;
+      --radius:    10px;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      min-height: 100vh;
+      padding: 2rem 1rem;
+    }
+
+    header {
+      text-align: center;
+      margin-bottom: 2.5rem;
+    }
+    header h1 {
+      font-size: 1.75rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+    }
+    header h1 span { color: var(--accent); }
+    header p {
+      color: var(--muted);
+      margin-top: .4rem;
+      font-size: .95rem;
+    }
+
+    /* ---- Pipeline flow diagram ---- */
+    .pipeline-flow {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: .5rem;
+      margin-bottom: 2rem;
+      flex-wrap: wrap;
+    }
+    .flow-step {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      padding: .35rem 1rem;
+      font-size: .8rem;
+      color: var(--muted);
+    }
+    .flow-arrow { color: var(--border); font-size: 1.1rem; }
+
+    /* ---- Upload card ---- */
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1.5rem;
+      max-width: 780px;
+      margin: 0 auto 1.5rem;
+    }
+    .card h2 {
+      font-size: 1rem;
+      font-weight: 600;
+      margin-bottom: 1rem;
+      color: var(--accent);
+    }
+
+    #drop-zone {
+      border: 2px dashed var(--border);
+      border-radius: var(--radius);
+      padding: 2.5rem;
+      text-align: center;
+      cursor: pointer;
+      transition: border-color .2s, background .2s;
+    }
+    #drop-zone:hover, #drop-zone.drag-over {
+      border-color: var(--accent);
+      background: rgba(88, 166, 255, .05);
+    }
+    #drop-zone input { display: none; }
+    #drop-zone .icon { font-size: 2.5rem; }
+    #drop-zone p { color: var(--muted); margin-top: .5rem; font-size: .9rem; }
+    #drop-zone strong { color: var(--accent); }
+
+    #preview-wrap {
+      display: none;
+      margin-top: 1rem;
+      text-align: center;
+    }
+    #preview-wrap img {
+      max-height: 200px;
+      max-width: 100%;
+      border-radius: var(--radius);
+      border: 1px solid var(--border);
+    }
+    #preview-wrap .filename {
+      font-size: .8rem;
+      color: var(--muted);
+      margin-top: .4rem;
+    }
+
+    .btn {
+      display: block;
+      width: 100%;
+      margin-top: 1rem;
+      padding: .75rem;
+      background: var(--accent);
+      color: #000;
+      font-weight: 700;
+      font-size: 1rem;
+      border: none;
+      border-radius: var(--radius);
+      cursor: pointer;
+      transition: opacity .15s;
+    }
+    .btn:hover:not(:disabled) { opacity: .85; }
+    .btn:disabled { opacity: .4; cursor: not-allowed; }
+
+    /* ---- Results ---- */
+    #results { display: none; max-width: 780px; margin: 0 auto; }
+
+    /* Stage cards */
+    .stage {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      margin-bottom: 1rem;
+      overflow: hidden;
+    }
+    .stage-header {
+      display: flex;
+      align-items: center;
+      gap: .75rem;
+      padding: 1rem 1.25rem;
+      background: var(--surface2);
+    }
+    .stage-num {
+      width: 1.8rem; height: 1.8rem;
+      border-radius: 50%;
+      background: var(--border);
+      display: flex; align-items: center; justify-content: center;
+      font-weight: 700; font-size: .85rem;
+      flex-shrink: 0;
+    }
+    .stage-title { font-weight: 600; font-size: .95rem; }
+    .badge {
+      margin-left: auto;
+      padding: .25rem .65rem;
+      border-radius: 999px;
+      font-size: .75rem;
+      font-weight: 600;
+    }
+    .badge.ok      { background: rgba(63,185,80,.15); color: var(--green); }
+    .badge.fail    { background: rgba(248,81,73,.15);  color: var(--red); }
+    .badge.pending { background: rgba(139,148,158,.1); color: var(--muted); }
+
+    .stage-body { padding: 1.25rem; }
+
+    /* Face detection */
+    .face-preview {
+      display: flex; align-items: flex-start; gap: 1.25rem; flex-wrap: wrap;
+    }
+    .face-preview img {
+      width: 120px; height: 120px;
+      object-fit: cover;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+    }
+    .face-info { flex: 1; min-width: 180px; }
+    .kv { margin-bottom: .4rem; font-size: .875rem; }
+    .kv .k { color: var(--muted); margin-right: .4rem; }
+
+    /* Search results */
+    .matches-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+      gap: 1rem;
+      margin-top: .75rem;
+    }
+    .match-card {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      overflow: hidden;
+      transition: border-color .15s;
+    }
+    .match-card:hover { border-color: var(--accent); }
+    .match-card.top-match { border-color: var(--green); }
+
+    .match-thumb {
+      width: 100%; height: 140px;
+      object-fit: cover;
+      background: var(--border);
+    }
+    .match-info { padding: .75rem; }
+    .match-title {
+      font-size: .8rem;
+      font-weight: 600;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .match-source { font-size: .72rem; color: var(--muted); margin-top: .2rem; }
+    .match-sim {
+      margin-top: .5rem;
+      font-size: .75rem;
+      font-weight: 700;
+    }
+    .sim-bar {
+      height: 4px;
+      background: var(--border);
+      border-radius: 2px;
+      margin-top: .3rem;
+      overflow: hidden;
+    }
+    .sim-fill {
+      height: 100%;
+      border-radius: 2px;
+      background: var(--green);
+      transition: width .6s ease;
+    }
+
+    /* Blockchain */
+    .tx-grid {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: .4rem 1rem;
+      font-size: .875rem;
+    }
+    .tx-grid .k { color: var(--muted); white-space: nowrap; }
+    .tx-grid .v {
+      font-family: "SFMono-Regular", Consolas, monospace;
+      font-size: .8rem;
+      word-break: break-all;
+      color: var(--accent);
+    }
+    .tx-grid .v.plain { color: var(--text); font-family: inherit; font-size: .875rem; }
+
+    .verify-banner {
+      margin-top: 1rem;
+      padding: .75rem 1rem;
+      border-radius: 8px;
+      font-size: .875rem;
+      display: flex;
+      align-items: center;
+      gap: .6rem;
+    }
+    .verify-banner.ok   { background: rgba(63,185,80,.12); border: 1px solid rgba(63,185,80,.35); }
+    .verify-banner.fail { background: rgba(248,81,73,.12); border: 1px solid rgba(248,81,73,.35); }
+
+    /* Duration */
+    .duration {
+      text-align: center;
+      font-size: .8rem;
+      color: var(--muted);
+      margin-top: .5rem;
+    }
+
+    /* Spinner */
+    .spinner-wrap {
+      display: none;
+      text-align: center;
+      padding: 2.5rem;
+      max-width: 780px;
+      margin: 0 auto;
+    }
+    .spinner {
+      width: 44px; height: 44px;
+      border: 4px solid var(--border);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin .8s linear infinite;
+      margin: 0 auto .75rem;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .spinner-label { color: var(--muted); font-size: .9rem; }
+    #spinner-stage { color: var(--accent); font-weight: 600; }
+
+    /* Error banner */
+    .error-banner {
+      background: rgba(248,81,73,.1);
+      border: 1px solid rgba(248,81,73,.35);
+      border-radius: var(--radius);
+      padding: 1rem 1.25rem;
+      color: var(--red);
+      max-width: 780px;
+      margin: 0 auto 1rem;
+      display: none;
+      font-size: .9rem;
+    }
+
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+
+    footer {
+      text-align: center;
+      margin-top: 3rem;
+      color: var(--muted);
+      font-size: .78rem;
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>Face ID &amp; <span>Blockchain</span> Verification Pipeline</h1>
+  <p>HH Goa 2026 · Task 3</p>
+</header>
+
+<div class="pipeline-flow">
+  <span class="flow-step">📸 Face Scan</span>
+  <span class="flow-arrow">→</span>
+  <span class="flow-step">🔍 Web Search</span>
+  <span class="flow-arrow">→</span>
+  <span class="flow-step">⛓️ Blockchain Store</span>
+  <span class="flow-arrow">→</span>
+  <span class="flow-step">✅ Verify</span>
+</div>
+
+<!-- Upload -->
+<div class="card">
+  <h2>Upload a Face Image</h2>
+  <div id="drop-zone">
+    <input type="file" id="file-input" accept="image/jpeg,image/png,image/webp" />
+    <div class="icon">🖼️</div>
+    <p>Drag &amp; drop or <strong>click to browse</strong></p>
+    <p>JPG · PNG · WebP · max 16 MB</p>
+  </div>
+  <div id="preview-wrap">
+    <img id="preview-img" src="" alt="preview" />
+    <div class="filename" id="preview-name"></div>
+  </div>
+  <button class="btn" id="run-btn" disabled>Run Pipeline</button>
+</div>
+
+<!-- Error -->
+<div class="error-banner" id="error-banner"></div>
+
+<!-- Spinner -->
+<div class="spinner-wrap" id="spinner">
+  <div class="spinner"></div>
+  <div class="spinner-label">Pipeline running… <span id="spinner-stage">detecting face</span></div>
+</div>
+
+<!-- Results -->
+<div id="results">
+
+  <!-- Stage 1 -->
+  <div class="stage" id="s1">
+    <div class="stage-header">
+      <div class="stage-num">1</div>
+      <div class="stage-title">Face Detection</div>
+      <span class="badge pending" id="s1-badge">—</span>
+    </div>
+    <div class="stage-body" id="s1-body"></div>
+  </div>
+
+  <!-- Stage 2 -->
+  <div class="stage" id="s2">
+    <div class="stage-header">
+      <div class="stage-num">2</div>
+      <div class="stage-title">Web / Social Media Search · Google Lens</div>
+      <span class="badge pending" id="s2-badge">—</span>
+    </div>
+    <div class="stage-body" id="s2-body"></div>
+  </div>
+
+  <!-- Stage 3 -->
+  <div class="stage" id="s3">
+    <div class="stage-header">
+      <div class="stage-num">3</div>
+      <div class="stage-title">Blockchain Verification · Hardhat Local EVM</div>
+      <span class="badge pending" id="s3-badge">—</span>
+    </div>
+    <div class="stage-body" id="s3-body"></div>
+  </div>
+
+  <div class="duration" id="duration"></div>
+</div>
+
+<footer>
+  Google Lens · SerpAPI · face_recognition (dlib) · Hardhat EVM · web3.py · Flask
+</footer>
+
+<script>
+  const dropZone   = document.getElementById('drop-zone');
+  const fileInput  = document.getElementById('file-input');
+  const previewImg = document.getElementById('preview-img');
+  const previewWrap= document.getElementById('preview-wrap');
+  const previewName= document.getElementById('preview-name');
+  const runBtn     = document.getElementById('run-btn');
+  const spinner    = document.getElementById('spinner');
+  const spinStage  = document.getElementById('spinner-stage');
+  const results    = document.getElementById('results');
+  const errBanner  = document.getElementById('error-banner');
+
+  let selectedFile = null;
+
+  // ---- File selection ----
+  dropZone.addEventListener('click', () => fileInput.click());
+  fileInput.addEventListener('change', () => setFile(fileInput.files[0]));
+
+  dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
+  dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+  dropZone.addEventListener('drop', e => {
+    e.preventDefault();
+    dropZone.classList.remove('drag-over');
+    if (e.dataTransfer.files[0]) setFile(e.dataTransfer.files[0]);
+  });
+
+  function setFile(file) {
+    if (!file) return;
+    selectedFile = file;
+    const reader = new FileReader();
+    reader.onload = ev => {
+      previewImg.src = ev.target.result;
+      previewWrap.style.display = 'block';
+      previewName.textContent = file.name;
+    };
+    reader.readAsDataURL(file);
+    runBtn.disabled = false;
+    results.style.display = 'none';
+    errBanner.style.display = 'none';
+  }
+
+  // ---- Run ----
+  runBtn.addEventListener('click', async () => {
+    if (!selectedFile) return;
+
+    // Reset UI
+    results.style.display = 'none';
+    errBanner.style.display = 'none';
+    spinner.style.display = 'block';
+    runBtn.disabled = true;
+
+    // Animate spinner stage text
+    const stages = ['detecting face…', 'uploading to search…', 'running Google Lens…', 'computing face similarity…', 'storing on blockchain…', 'verifying on-chain…'];
+    let si = 0;
+    const stageInterval = setInterval(() => {
+      spinStage.textContent = stages[si++ % stages.length];
+    }, 1800);
+
+    const form = new FormData();
+    form.append('image', selectedFile);
+
+    let data;
+    try {
+      const resp = await fetch('/run', { method: 'POST', body: form });
+      data = await resp.json();
+    } catch (e) {
+      clearInterval(stageInterval);
+      spinner.style.display = 'none';
+      showError('Network error: ' + e.message);
+      runBtn.disabled = false;
+      return;
+    }
+
+    clearInterval(stageInterval);
+    spinner.style.display = 'none';
+    runBtn.disabled = false;
+    renderResults(data);
+  });
+
+  // ---- Render ----
+  function badge(el, ok) {
+    el.textContent = ok ? 'OK' : 'Failed';
+    el.className = 'badge ' + (ok ? 'ok' : 'fail');
+  }
+
+  function showError(msg) {
+    errBanner.textContent = '⚠️  ' + msg;
+    errBanner.style.display = 'block';
+  }
+
+  function renderResults(data) {
+    results.style.display = 'block';
+    const steps = data.steps || {};
+
+    // -- Stage 1: Face Detection --
+    const fd = steps.face_detection || {};
+    badge(document.getElementById('s1-badge'), fd.success);
+    const s1 = document.getElementById('s1-body');
+    if (fd.success) {
+      const imgHtml = fd.cropped_b64
+        ? `<img src="${fd.cropped_b64}" alt="cropped face" />`
+        : '';
+      const loc = fd.face_location || [];
+      s1.innerHTML = `
+        <div class="face-preview">
+          ${imgHtml}
+          <div class="face-info">
+            <div class="kv"><span class="k">Faces found:</span>${fd.face_count}</div>
+            <div class="kv"><span class="k">Face region:</span>top=${loc[0]}, right=${loc[1]}, bottom=${loc[2]}, left=${loc[3]}</div>
+            <div class="kv"><span class="k">Encoding:</span>128-dimensional vector ✓</div>
+          </div>
+        </div>`;
+    } else {
+      s1.innerHTML = `<p style="color:var(--red)">${fd.error || 'Unknown error'}</p>`;
+    }
+
+    // -- Stage 2: Web Search --
+    const ws = steps.web_search || {};
+    badge(document.getElementById('s2-badge'), ws.success);
+    const s2 = document.getElementById('s2-body');
+    if (ws.success) {
+      const matches = (ws.matches || []).slice(0, 6);
+      const cards = matches.map((m, i) => {
+        const sim = m.similarity !== null && m.similarity !== undefined
+          ? `<div class="match-sim" style="color:${simColor(m.similarity)}">${m.similarity.toFixed(1)}% face match</div>
+             <div class="sim-bar"><div class="sim-fill" style="width:${m.similarity}%;background:${simColor(m.similarity)}"></div></div>`
+          : `<div class="match-sim" style="color:var(--muted)">No face detected in thumb</div>`;
+        const thumb = m.thumbnail
+          ? `<img class="match-thumb" src="${m.thumbnail}" alt="thumb" onerror="this.style.display='none'" />`
+          : `<div class="match-thumb" style="display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:.75rem">No image</div>`;
+        return `
+          <div class="match-card ${i === 0 ? 'top-match' : ''}">
+            ${thumb}
+            <div class="match-info">
+              <div class="match-title" title="${esc(m.title)}">${i===0?'⭐ ':''}${esc(m.title)}</div>
+              <div class="match-source">${esc(m.source || new URL(m.link||'http://x').hostname)}</div>
+              ${sim}
+              ${m.link ? `<div style="margin-top:.5rem"><a href="${esc(m.link)}" target="_blank" style="font-size:.75rem">Open ↗</a></div>` : ''}
+            </div>
+          </div>`;
+      }).join('');
+
+      s2.innerHTML = `
+        <div class="kv"><span class="k">Total matches:</span>${ws.total_matches}</div>
+        <div class="kv"><span class="k">Search image:</span><a href="${ws.hosted_url}" target="_blank">View uploaded face ↗</a></div>
+        <div class="matches-grid">${cards}</div>`;
+    } else {
+      s2.innerHTML = `<p style="color:var(--red)">${ws.error || 'Unknown error'}</p>`;
+    }
+
+    // -- Stage 3: Blockchain --
+    const bs = steps.blockchain_store || {};
+    const bv = steps.blockchain_verify || {};
+    const s3ok = bs.success;
+    badge(document.getElementById('s3-badge'), s3ok);
+    const s3 = document.getElementById('s3-body');
+    if (s3ok) {
+      const verified = bv.verified;
+      const verifyBanner = bv
+        ? `<div class="verify-banner ${verified?'ok':'fail'}">
+            ${verified ? '✅ On-chain verification passed — data is tamper-evident' : '❌ Verification failed — hash not found on chain'}
+            ${bv.timestamp_human ? `<span style="margin-left:auto;color:var(--muted);font-size:.8rem">${bv.timestamp_human}</span>` : ''}
+          </div>`
+        : '';
+      s3.innerHTML = `
+        <div class="tx-grid">
+          <span class="k">Content hash</span>
+          <span class="v">${bs.content_hash || '—'}</span>
+          <span class="k">TX hash</span>
+          <span class="v">${bs.tx_hash || '—'}</span>
+          <span class="k">Block</span>
+          <span class="v plain">#${bs.block_number ?? '—'}</span>
+          <span class="k">Gas used</span>
+          <span class="v plain">${bs.gas_used ?? '—'}</span>
+          <span class="k">Contract</span>
+          <span class="v">${bs.contract_addr || '—'}</span>
+        </div>
+        ${verifyBanner}`;
+    } else {
+      const errMsg = bs.error || 'Blockchain error';
+      const isConn = errMsg.includes('connect') || errMsg.includes('Hardhat');
+      s3.innerHTML = `
+        <p style="color:var(--red)">${errMsg}</p>
+        ${isConn ? '<p style="color:var(--muted);font-size:.85rem;margin-top:.5rem">Make sure the Hardhat node is running (<code>cd blockchain &amp;&amp; npx hardhat node</code>) and the contract is deployed (<code>npm run deploy</code>).</p>' : ''}`;
+    }
+
+    // Duration
+    if (data.duration_seconds) {
+      document.getElementById('duration').textContent = `Pipeline completed in ${data.duration_seconds}s`;
+    }
+
+    if (!data.success && data.error) {
+      showError(data.error);
+    }
+  }
+
+  function simColor(pct) {
+    if (pct >= 50) return 'var(--green)';
+    if (pct >= 30) return 'var(--yellow)';
+    return 'var(--red)';
+  }
+
+  function esc(s) {
+    return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+</script>
+</body>
+</html>

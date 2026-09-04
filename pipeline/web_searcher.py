@@ -1,0 +1,171 @@
+"""
+web_searcher.py
+===============
+Step 2 of the pipeline:
+  a) Upload the cropped face to imgbb (free temp public URL)
+  b) Query SerpAPI Google Lens for visual matches across the web / social media
+  c) For each result thumbnail, attempt to detect a face and compute
+     cosine similarity to the original encoding — "face match confidence"
+
+Dependencies: serpapi (google-search-results), requests, face_recognition, Pillow
+"""
+
+import io
+import logging
+import os
+from typing import Optional
+
+import face_recognition
+import numpy as np
+import requests
+from serpapi import GoogleSearch
+
+logger = logging.getLogger(__name__)
+
+_IMGBB_UPLOAD_URL = "https://api.imgbb.com/1/upload"
+_LENS_MATCH_LIMIT = 10   # max results to attempt face-similarity on
+_REQUEST_TIMEOUT  = 8    # seconds for thumbnail downloads
+
+
+# ---------------------------------------------------------------------------
+# Image hosting
+# ---------------------------------------------------------------------------
+
+def _upload_to_imgbb(image_path: str) -> str:
+    """Upload a local image to imgbb; return the public URL."""
+    api_key = os.environ.get("IMGBB_API_KEY", "")
+    if not api_key:
+        raise EnvironmentError("IMGBB_API_KEY is not set in .env")
+
+    with open(image_path, "rb") as fh:
+        resp = requests.post(
+            _IMGBB_UPLOAD_URL,
+            params={"key": api_key},
+            files={"image": fh},
+            timeout=20,
+        )
+    resp.raise_for_status()
+    data = resp.json()
+    url = data["data"]["url"]
+    logger.info(f"Image hosted at: {url}")
+    return url
+
+
+# ---------------------------------------------------------------------------
+# Face similarity helper
+# ---------------------------------------------------------------------------
+
+def _face_similarity(image_url: str, reference_encoding: np.ndarray) -> Optional[float]:
+    """
+    Download *image_url*, detect the first face, compute Euclidean distance to
+    *reference_encoding*, and convert to a 0-100 similarity score.
+    Returns None if no face is found or download fails.
+    """
+    try:
+        resp = requests.get(image_url, timeout=_REQUEST_TIMEOUT)
+        resp.raise_for_status()
+        img = face_recognition.load_image_file(io.BytesIO(resp.content))
+        encodings = face_recognition.face_encodings(img)
+        if not encodings:
+            return None
+        distance = face_recognition.face_distance([reference_encoding], encodings[0])[0]
+        # face_recognition uses Euclidean distance; 0.6 is the typical match threshold.
+        # We map [0, 1] distance → [100, 0] similarity, clamp to [0, 100].
+        similarity = max(0.0, (1.0 - distance)) * 100.0
+        return round(similarity, 1)
+    except Exception as exc:
+        logger.debug(f"Similarity check skipped for {image_url}: {exc}")
+        return None
+
+
+# ---------------------------------------------------------------------------
+# Main search function
+# ---------------------------------------------------------------------------
+
+def search_face_on_web(image_path: str, face_encoding: list) -> dict:
+    """
+    Perform a Google Lens reverse-image search for the face in *image_path*.
+
+    Parameters
+    ----------
+    image_path    : path to the cropped face JPEG
+    face_encoding : 128-element list (from face_detector, JSON-serialisable)
+
+    Returns
+    -------
+    dict with keys:
+      success        (bool)
+      hosted_url     (str)   — public URL used for the Lens query
+      matches        (list)  — list of result dicts (sorted by face similarity)
+      best_match     (dict)  — highest-confidence result
+      total_matches  (int)
+      error          (str)   — only on failure
+    """
+    # -- 1. Upload to temporary public host ----------------------------------
+    logger.info("Uploading face image to imgbb...")
+    try:
+        hosted_url = _upload_to_imgbb(image_path)
+    except Exception as exc:
+        return {"success": False, "error": f"Image upload failed: {exc}"}
+
+    # -- 2. Google Lens reverse-image search ----------------------------------
+    serpapi_key = os.environ.get("SERPAPI_KEY", "")
+    if not serpapi_key:
+        return {"success": False, "error": "SERPAPI_KEY is not set in .env"}
+
+    logger.info("Querying Google Lens via SerpAPI...")
+    try:
+        search = GoogleSearch({
+            "engine":  "google_lens",
+            "url":     hosted_url,
+            "api_key": serpapi_key,
+        })
+        raw = search.get_dict()
+    except Exception as exc:
+        return {"success": False, "error": f"SerpAPI request failed: {exc}"}
+
+    visual_matches = raw.get("visual_matches", [])
+    if not visual_matches:
+        return {
+            "success":    False,
+            "hosted_url": hosted_url,
+            "error":      "Google Lens returned no visual matches. "
+                          "Try a clearer, higher-resolution photo.",
+        }
+
+    # -- 3. Compute face-similarity for each result ---------------------------
+    ref_encoding = np.array(face_encoding)
+    matches = []
+
+    for item in visual_matches[:_LENS_MATCH_LIMIT]:
+        thumbnail = item.get("thumbnail", "")
+        similarity = _face_similarity(thumbnail, ref_encoding) if thumbnail else None
+
+        matches.append({
+            "title":      item.get("title", "Unknown"),
+            "link":       item.get("link", ""),
+            "source":     item.get("source", ""),
+            "thumbnail":  thumbnail,
+            "similarity": similarity,   # 0-100 or None
+        })
+
+    # Bring face-confirmed matches to the top; None → treated as 0
+    matches.sort(key=lambda m: m["similarity"] or 0, reverse=True)
+
+    # Append any remaining results (beyond LIMIT) without similarity
+    for item in visual_matches[_LENS_MATCH_LIMIT:]:
+        matches.append({
+            "title":      item.get("title", "Unknown"),
+            "link":       item.get("link", ""),
+            "source":     item.get("source", ""),
+            "thumbnail":  item.get("thumbnail", ""),
+            "similarity": None,
+        })
+
+    return {
+        "success":       True,
+        "hosted_url":    hosted_url,
+        "matches":       matches,
+        "best_match":    matches[0],
+        "total_matches": len(visual_matches),
+    }
